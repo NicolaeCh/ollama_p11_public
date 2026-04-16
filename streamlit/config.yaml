@@ -1,0 +1,14 @@
+project_dir: ~/ollama-project
+models_dir: ~/ollama-project/models
+logs_dir: ~/ollama-project/logs
+modelfiles_dir: ~/ollama-project/modelfiles
+container_name: ollama-ppc64le
+api_scheme: http
+host_bind: 127.0.0.1
+container_port: 11434
+streamlit_host: 0.0.0.0
+streamlit_port: 8501
+default_model: ""
+default_temperature: 0.7
+default_num_predict: 512
+default_keep_alive: 10m
