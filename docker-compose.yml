@@ -1,0 +1,16 @@
+services:
+  ollama:
+    image: ${OLLAMA_IMAGE:-icr.io/ppc64le-oss/ollama-ppc64le:v0.17.6}
+    container_name: ${CONTAINER_NAME:-ollama-ppc64le}
+    ports:
+      - "${OLLAMA_HOST_BIND:-127.0.0.1}:${OLLAMA_PORT:-11434}:11434"
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+      OLLAMA_MODELS: /root/.ollama/models
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-10m}
+      OLLAMA_ORIGINS: ${OLLAMA_ORIGINS:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-127.0.0.1,localhost}
+    volumes:
+      - ${OLLAMA_MODELS_DIR:-./models}:/root/.ollama
+    restart: unless-stopped
