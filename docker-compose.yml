@@ -12,5 +12,5 @@ services:
       HTTPS_PROXY: ${HTTPS_PROXY:-}
       NO_PROXY: ${NO_PROXY:-127.0.0.1,localhost}
     volumes:
-      - ${OLLAMA_MODELS_DIR:-./models}:/root/.ollama
+      - ${OLLAMA_MODELS_DIR:-./models}:/root/.ollama:Z
     restart: unless-stopped

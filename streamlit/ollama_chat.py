@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import time
 from pathlib import Path
@@ -23,7 +22,8 @@ def load_config() -> Dict[str, Any]:
         "project_dir": str(PROJECT_DIR),
         "host_bind": "127.0.0.1",
         "container_port": 11434,
-        "streamlit_port": 8501,
+        "streamlit_host": "0.0.0.0",
+        "streamlit_port": 8505,
         "default_model": "",
         "default_temperature": 0.7,
         "default_num_predict": 512,
@@ -37,7 +37,7 @@ def load_config() -> Dict[str, Any]:
 
 
 CONFIG = load_config()
-OLLAMA_BASE_URL = f"{CONFIG['api_scheme']}://{CONFIG['host_bind']}:{CONFIG['container_port']}/api"
+OLLAMA_BASE_URL = f"{CONFIG.get('api_scheme', 'http')}://{CONFIG['host_bind']}:{CONFIG['container_port']}/api"
 
 st.set_page_config(
     page_title="Ollama Testing Interface - IBM Power",
@@ -56,19 +56,15 @@ def api_get(path: str, timeout: int = 10) -> Optional[Dict[str, Any]]:
         return None
 
 
-
 def api_post(path: str, payload: Dict[str, Any], timeout: int = 120) -> Optional[Dict[str, Any]]:
     try:
-        response = requests.post(
-            f"{OLLAMA_BASE_URL}{path}", json=payload, timeout=timeout
-        )
+        response = requests.post(f"{OLLAMA_BASE_URL}{path}", json=payload, timeout=timeout)
         response.raise_for_status()
         if response.text.strip():
             return response.json()
         return {}
     except requests.RequestException:
         return None
-
 
 
 def check_server() -> Dict[str, Any]:
@@ -80,7 +76,6 @@ def check_server() -> Dict[str, Any]:
         "models": (tags or {}).get("models", []),
         "running": (ps or {}).get("models", []),
     }
-
 
 
 def container_status() -> Dict[str, str]:
@@ -99,7 +94,6 @@ def container_status() -> Dict[str, str]:
     return {"runtime": "n/a", "status": "Not found"}
 
 
-
 def run_script(script: str, *args: str, timeout: int = 30) -> subprocess.CompletedProcess[str]:
     script_path = SCRIPTS_DIR / script
     return subprocess.run(
@@ -110,11 +104,9 @@ def run_script(script: str, *args: str, timeout: int = 30) -> subprocess.Complet
     )
 
 
-
 def list_models() -> List[Dict[str, Any]]:
     data = api_get("/tags") or {}
     return data.get("models", [])
-
 
 
 def list_running_models() -> List[Dict[str, Any]]:
@@ -122,21 +114,19 @@ def list_running_models() -> List[Dict[str, Any]]:
     return data.get("models", [])
 
 
-
 def pull_model(model_name: str) -> tuple[bool, str]:
     try:
         result = run_script("pull_model.sh", model_name, timeout=7200)
         if result.returncode == 0:
-            return True, result.stdout.strip() or f"Pull request submitted for {model_name}"
+            return True, result.stdout.strip() or f"Pulled {model_name}"
         return False, result.stderr.strip() or result.stdout.strip() or "Model pull failed"
     except Exception as exc:
         return False, str(exc)
 
 
-
 def delete_model(model_name: str) -> tuple[bool, str]:
     try:
-        result = run_script("delete_model.sh", model_name, timeout=60)
+        result = run_script("delete_model.sh", model_name, timeout=300)
         if result.returncode == 0:
             return True, result.stdout.strip() or f"Deleted {model_name}"
         return False, result.stderr.strip() or result.stdout.strip() or "Delete failed"
@@ -144,16 +134,14 @@ def delete_model(model_name: str) -> tuple[bool, str]:
         return False, str(exc)
 
 
-
 def create_model(new_name: str, modelfile_path: str) -> tuple[bool, str]:
     try:
-        result = run_script("create_model.sh", new_name, modelfile_path, timeout=600)
+        result = run_script("create_model.sh", new_name, modelfile_path, timeout=1800)
         if result.returncode == 0:
             return True, result.stdout.strip() or f"Created model {new_name}"
         return False, result.stderr.strip() or result.stdout.strip() or "Create failed"
     except Exception as exc:
         return False, str(exc)
-
 
 
 def chat_once(model: str, messages: List[Dict[str, str]], temperature: float, num_predict: int, keep_alive: str) -> Dict[str, Any]:
@@ -197,12 +185,12 @@ def chat_once(model: str, messages: List[Dict[str, str]], temperature: float, nu
     }
 
 
-
 def metrics_frame(rows: List[Dict[str, Any]]) -> pd.DataFrame:
     if not rows:
-        return pd.DataFrame(columns=["timestamp", "model", "ttft_s", "tps", "total_s", "prompt_tokens", "completion_tokens"])
+        return pd.DataFrame(
+            columns=["timestamp", "model", "ttft_s", "tps", "total_s", "prompt_tokens", "completion_tokens"]
+        )
     return pd.DataFrame(rows)
-
 
 
 def format_size(num_bytes: int) -> str:
@@ -212,7 +200,6 @@ def format_size(num_bytes: int) -> str:
             return f"{value:.2f} {unit}"
         value /= 1024
     return f"{num_bytes} B"
-
 
 
 def main() -> None:
@@ -229,8 +216,8 @@ def main() -> None:
     with st.sidebar:
         st.title("🦙 Ollama Testing")
         st.caption("IBM Power / ppc64le")
-
         st.divider()
+
         st.subheader("Server status")
         if status["healthy"]:
             st.success("Ollama API reachable")
@@ -238,6 +225,7 @@ def main() -> None:
             st.error("Ollama API offline")
         st.caption(f"Container: {cstatus['status']} ({cstatus['runtime']})")
         st.code(OLLAMA_BASE_URL)
+        st.caption(f"Streamlit service port: {CONFIG['streamlit_port']}")
 
         col1, col2 = st.columns(2)
         with col1:
@@ -263,7 +251,7 @@ def main() -> None:
 
         st.divider()
         st.subheader("Model operations")
-        model_to_pull = st.text_input("Pull model", placeholder="granite3.3:8b")
+        model_to_pull = st.text_input("Pull model", placeholder="gemma3:4b-it-qat")
         if st.button("Pull", use_container_width=True):
             if model_to_pull.strip():
                 ok, msg = pull_model(model_to_pull.strip())
@@ -321,7 +309,6 @@ def main() -> None:
                 st.session_state.messages.append(user_msg)
                 with st.chat_message("user"):
                     st.markdown(prompt)
-
                 with st.chat_message("assistant"):
                     with st.spinner("Generating response..."):
                         try:
@@ -361,57 +348,54 @@ def main() -> None:
             with col2:
                 if st.button("Warm model", use_container_width=True):
                     try:
-                        result = chat_once(
-                            selected_model,
-                            [{"role": "user", "content": "Reply with OK."}],
-                            0.0,
-                            8,
-                            keep_alive,
-                        )
-                        st.success(f"Model warmed. Total time: {result['total_time']:.2f}s")
+                        result = chat_once(selected_model, [{"role": "user", "content": "Reply with OK."}], 0.0, 8, keep_alive)
+                        st.success(f"Model warmed. Response: {result['content']}")
                     except Exception as exc:
                         st.error(str(exc))
 
     with tab2:
         st.subheader("Installed models")
         if models:
-            rows = []
-            running_names = {m.get("name", "") for m in running_models}
-            for item in models:
-                details = item.get("details", {})
-                rows.append(
+            table_rows = []
+            for model in models:
+                table_rows.append(
                     {
-                        "name": item.get("name", ""),
-                        "family": details.get("family", ""),
-                        "parameters": details.get("parameter_size", ""),
-                        "quantization": details.get("quantization_level", ""),
-                        "size": format_size(int(item.get("size", 0) or 0)),
-                        "running": item.get("name", "") in running_names,
+                        "name": model.get("name", ""),
+                        "size": format_size(model.get("size", 0) or 0),
+                        "modified": model.get("modified_at", ""),
+                        "digest": model.get("digest", "")[:16],
                     }
                 )
-            st.dataframe(pd.DataFrame(rows), use_container_width=True)
+            st.dataframe(pd.DataFrame(table_rows), use_container_width=True, hide_index=True)
         else:
-            st.warning("No local models found.")
+            st.info("No local models found.")
 
         st.subheader("Running models")
         if running_models:
-            st.json(running_models)
+            running_rows = []
+            for model in running_models:
+                running_rows.append(
+                    {
+                        "name": model.get("name", ""),
+                        "size": format_size(model.get("size", 0) or 0),
+                        "processor": model.get("details", {}).get("family", ""),
+                        "expires_at": model.get("expires_at", ""),
+                    }
+                )
+            st.dataframe(pd.DataFrame(running_rows), use_container_width=True, hide_index=True)
         else:
             st.info("No models currently loaded in memory.")
 
     with tab3:
         st.subheader("Performance history")
         perf_df = metrics_frame(st.session_state.perf_log)
-        st.dataframe(perf_df, use_container_width=True)
-        if not perf_df.empty:
+        if perf_df.empty:
+            st.info("No performance samples yet. Run a few prompts first.")
+        else:
+            st.dataframe(perf_df, use_container_width=True, hide_index=True)
             st.line_chart(perf_df.set_index("timestamp")[["ttft_s", "tps", "total_s"]])
-            st.download_button(
-                "Download metrics JSON",
-                data=json.dumps(st.session_state.perf_log, indent=2),
-                file_name="ollama_metrics.json",
-                mime="application/json",
-                use_container_width=True,
-            )
+            with st.expander("Latest raw response"):
+                st.code(json.dumps(st.session_state.perf_log[-1], indent=2), language="json")
 
 
 if __name__ == "__main__":

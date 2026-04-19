@@ -5,9 +5,10 @@
 ```bash
 bash setup_environment.sh
 source ~/ollama-project/venv/bin/activate
+cd ~/ollama-project
 ```
 
-## Container lifecycle
+## Ollama container lifecycle
 
 ```bash
 ./scripts/ollama_manager.sh start
@@ -22,10 +23,10 @@ source ~/ollama-project/venv/bin/activate
 ## Model operations
 
 ```bash
-./scripts/pull_model.sh granite3.3:8b
+./scripts/pull_model.sh gemma3:4b-it-qat
 ./scripts/list_models.sh
-./scripts/delete_model.sh granite3.3:8b
 ./scripts/create_model.sh granite-custom ~/ollama-project/modelfiles/my.Modelfile
+./scripts/delete_model.sh granite-custom
 ```
 
 ## Health checks
@@ -36,11 +37,20 @@ curl http://127.0.0.1:11434/api/tags
 curl http://127.0.0.1:11434/api/ps
 ```
 
-## Streamlit UI
+## Streamlit background service
 
 ```bash
-cd ~/ollama-project/streamlit
-streamlit run ollama_chat.py --server.port 8501
+./scripts/streamlit_manager.sh start
+./scripts/streamlit_manager.sh stop
+./scripts/streamlit_manager.sh restart
+./scripts/streamlit_manager.sh status
+./scripts/streamlit_manager.sh logs
+```
+
+## Streamlit UI URL
+
+```text
+http://<server-ip>:8505
 ```
 
 ## Compose

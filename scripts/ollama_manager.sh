@@ -16,9 +16,11 @@ ORIGINS="${OLLAMA_ORIGINS:-}"
 HTTPS_PROXY_VALUE="${HTTPS_PROXY:-}"
 NO_PROXY_VALUE="${NO_PROXY:-127.0.0.1,localhost}"
 
+say() { printf '%s\n' "$*"; }
+
 usage() {
   cat <<USAGE
-Usage: $0 {start|stop|restart|status|logs|shell|rm|pull-image}
+Usage: $0 {start|stop|restart|status|logs|shell|rm|pull-image|inspect}
 USAGE
 }
 
@@ -30,15 +32,29 @@ running() {
   [[ "$(${RUNTIME} inspect -f '{{.State.Running}}' "${NAME}" 2>/dev/null || true)" == "true" ]]
 }
 
-start_container() {
+ensure_runtime() {
+  if ! command -v "${RUNTIME}" >/dev/null 2>&1; then
+    say "Container runtime not found: ${RUNTIME}"
+    exit 1
+  fi
+}
+
+ensure_models_dir() {
   mkdir -p "${MODELS_DIR}"
+  chmod u+rwx "${MODELS_DIR}" >/dev/null 2>&1 || true
+}
+
+start_container() {
+  ensure_runtime
+  ensure_models_dir
+
   if exists; then
     if running; then
-      echo "Container ${NAME} is already running"
+      say "Container ${NAME} is already running"
       return 0
     fi
     ${RUNTIME} start "${NAME}"
-    echo "Container ${NAME} started"
+    say "Container ${NAME} started"
     return 0
   fi
 
@@ -55,7 +71,7 @@ start_container() {
     --restart unless-stopped \
     "${IMAGE}"
 
-  echo "Container ${NAME} created and started"
+  say "Container ${NAME} created and started"
 }
 
 case "${1:-}" in
@@ -63,33 +79,48 @@ case "${1:-}" in
     start_container
     ;;
   stop)
+    ensure_runtime
     ${RUNTIME} stop "${NAME}"
     ;;
   restart)
+    ensure_runtime
     if exists; then
       ${RUNTIME} restart "${NAME}"
+      say "Container ${NAME} restarted"
     else
       start_container
     fi
     ;;
   status)
+    ensure_runtime
     ${RUNTIME} ps -a --filter "name=${NAME}"
     ;;
   logs)
+    ensure_runtime
     ${RUNTIME} logs -f "${NAME}"
     ;;
   shell)
+    ensure_runtime
     ${RUNTIME} exec -it "${NAME}" /bin/bash
     ;;
+  inspect)
+    ensure_runtime
+    ${RUNTIME} inspect "${NAME}"
+    ;;
   rm)
+    ensure_runtime
     if exists; then
       if running; then
         ${RUNTIME} stop "${NAME}"
       fi
       ${RUNTIME} rm "${NAME}"
+      say "Container ${NAME} removed"
+    else
+      say "Container ${NAME} does not exist"
     fi
     ;;
   pull-image)
+    ensure_runtime
     ${RUNTIME} pull "${IMAGE}"
     ;;
   *)
