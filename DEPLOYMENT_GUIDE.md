@@ -1,140 +1,142 @@
-# Deployment Guide: Ollama on IBM Power
+# Deployment Guide
 
-## 1. Overview
+This guide describes a clean deployment of the Ollama testing environment on IBM Power Linux.
 
-This project deploys Ollama as a persistent containerized service on IBM Power (`ppc64le`) and provides a Streamlit UI that can stay running in the background on port `8505`.
+## 1. Requirements
 
-The runtime model now follows your validated host workflow:
+- IBM Power server with `ppc64le` Linux
+- Podman or Docker
+- Python 3
+- Network access to pull the container image
+- Optional: firewall access for ports `11434` and `8505`
 
-- keep the Ollama service container running
-- manage models from inside that container with `ollama pull`, `ollama create`, `ollama rm`, and `ollama list`
-- expose the Streamlit chat UI separately as a long-running background process
-
-Ollama exposes a local API at `http://localhost:11434/api`, while Streamlit is configured to run as a headless server with a configurable port. citeturn793305search2turn323234search0turn323234search1
-
-## 2. Host prerequisites
-
-- IBM Power system running Linux with `ppc64le`
-- Podman preferred, Docker supported
-- Python 3.9+
-- Internet access to pull models when needed
-- Enough disk capacity for local model storage
-- SELinux-aware bind mounts when using Podman on enforcing systems, which is why the project uses `:Z` on the model volume mount
-
-## 3. Source layout and install layout
-
-The GitHub repo contains the source tree. The setup script creates or refreshes the runtime tree under:
+Default image:
 
 ```text
-~/ollama-project
+icr.io/ppc64le-oss/ollama-ppc64le:v0.17.6
 ```
 
-That working directory contains:
+## 2. Install the project
 
-- `scripts/`
-- `streamlit/`
-- `.streamlit/`
-- `models/`
-- `logs/`
-- `modelfiles/`
-- `venv/`
-- `.env`
-
-The current repo already documents the `scripts`, `streamlit`, and `templates` structure and uses `setup_environment.sh` from the repository root. citeturn232924view0turn532828view0
-
-## 4. Installation
-
-Run:
+From the repository directory:
 
 ```bash
 bash setup_environment.sh
 ```
 
-This script now does the following:
+The installer creates or refreshes:
 
-- creates `~/ollama-project`
-- creates a Python virtual environment
-- installs Streamlit dependencies with your Fury wheel index override
-- copies scripts, templates, docs, and app files into the runtime directory
-- writes `.env`
-- writes `streamlit/config.yaml`
-- writes `.streamlit/config.toml`
-- pulls the IBM Power Ollama image
+```text
+~/ollama-project
+```
 
-Your Fury option is now part of the install flow. citeturn532828view0
+It also creates:
 
-## 5. Start the Ollama container
+```text
+~/ollama-project/venv
+~/ollama-project/models
+~/ollama-project/logs
+~/ollama-project/modelfiles
+```
+
+Python dependencies are installed with:
+
+```bash
+pip install -r streamlit/requirements.txt --prefer-binary --extra-index-url=https://repo.fury.io/mgiessing
+```
+
+## 3. Start the Ollama container
 
 ```bash
 cd ~/ollama-project
 ./scripts/ollama_manager.sh start
 ```
 
-Useful checks:
+Check status and logs:
 
 ```bash
 ./scripts/ollama_manager.sh status
+./scripts/ollama_manager.sh logs
+```
+
+The container publishes Ollama as:
+
+```text
+0.0.0.0:11434 -> container:11434
+```
+
+Inside the container, Ollama is configured with:
+
+```text
+OLLAMA_HOST=0.0.0.0:11434
+OLLAMA_MODELS=/root/.ollama/models
+```
+
+The host model directory is mounted as:
+
+```text
+~/ollama-project/models:/root/.ollama:Z
+```
+
+## 4. Validate the Ollama API
+
+From the IBM Power host:
+
+```bash
 ./scripts/healthcheck.sh
 ```
 
-The container uses:
-
-- image: `icr.io/ppc64le-oss/ollama-ppc64le:v0.17.6`
-- host bind: `127.0.0.1:11434` by default
-- volume: `~/ollama-project/models:/root/.ollama:Z`
-
-## 6. Pull models the same way you validated manually
-
-You confirmed this syntax works on your system:
+From another server:
 
 ```bash
-podman exec -it ollama-ppc64le ollama pull model_name
+curl http://<server-ip>:11434/api/tags
 ```
 
-The project now wraps that exact operational pattern in:
+If remote access fails, check the host firewall and any network ACLs between the client and the Power server.
+
+## 5. Pull a model
+
+Model operations run the Ollama CLI inside the container.
 
 ```bash
 ./scripts/pull_model.sh gemma3:4b-it-qat
 ```
 
-That aligns with Ollama’s CLI model workflow. citeturn101224search0
+Equivalent command:
 
-## 7. List, create, and delete models
+```bash
+podman exec -it ollama-ppc64le ollama pull gemma3:4b-it-qat
+```
 
-### List
+List local models:
 
 ```bash
 ./scripts/list_models.sh
 ```
 
-### Create from Modelfile
-
-Copy and edit the template:
+Delete a model:
 
 ```bash
-cp templates/Modelfile.example ~/ollama-project/modelfiles/my-granite.Modelfile
-vi ~/ollama-project/modelfiles/my-granite.Modelfile
+./scripts/delete_model.sh <model-name>
 ```
 
-Create the model:
+## 6. Create a custom model from a Modelfile
+
+Create a Modelfile under:
+
+```text
+~/ollama-project/modelfiles
+```
+
+Example:
 
 ```bash
-./scripts/create_model.sh granite-custom ~/ollama-project/modelfiles/my-granite.Modelfile
+cp ~/ollama-project/templates/Modelfile.example ~/ollama-project/modelfiles/custom.Modelfile
+vi ~/ollama-project/modelfiles/custom.Modelfile
+./scripts/create_model.sh granite-custom ~/ollama-project/modelfiles/custom.Modelfile
 ```
 
-Ollama’s Modelfile workflow is based on `ollama create <name> -f <Modelfile>`. citeturn101224search8
-
-### Delete
-
-```bash
-./scripts/delete_model.sh granite-custom
-```
-
-## 8. Start Streamlit as a background service
-
-This project now treats Streamlit as a persistent background service rather than an interactive foreground command.
-
-Start it:
+## 7. Start Streamlit in background mode
 
 ```bash
 source ~/ollama-project/venv/bin/activate
@@ -142,30 +144,12 @@ cd ~/ollama-project
 ./scripts/streamlit_manager.sh start
 ```
 
-Check it:
+Check status and logs:
 
 ```bash
 ./scripts/streamlit_manager.sh status
 ./scripts/streamlit_manager.sh logs
 ```
-
-Stop it:
-
-```bash
-./scripts/streamlit_manager.sh stop
-```
-
-The Streamlit service uses:
-
-- address: `0.0.0.0`
-- port: `8505`
-- headless mode: enabled
-- log file: `~/ollama-project/logs/streamlit.log`
-- pid file: `~/ollama-project/logs/streamlit.pid`
-
-Streamlit documents both `config.toml` and command-line server settings for this style of deployment. citeturn323234search0turn323234search1turn323234search6
-
-## 9. Access model testing UI
 
 Open:
 
@@ -173,99 +157,106 @@ Open:
 http://<server-ip>:8505
 ```
 
-The UI talks to the local Ollama API on `127.0.0.1:11434` and keeps model execution local to the server.
+The UI uses streaming Ollama chat requests. Assistant responses are displayed while tokens are generated, without waiting for the full response.
 
-## 10. Operational commands
+## 8. Token settings
 
-### Ollama container
-
-```bash
-./scripts/ollama_manager.sh start
-./scripts/ollama_manager.sh stop
-./scripts/ollama_manager.sh restart
-./scripts/ollama_manager.sh status
-./scripts/ollama_manager.sh logs
-./scripts/ollama_manager.sh shell
-./scripts/ollama_manager.sh rm
-```
-
-### Streamlit
-
-```bash
-./scripts/streamlit_manager.sh start
-./scripts/streamlit_manager.sh stop
-./scripts/streamlit_manager.sh restart
-./scripts/streamlit_manager.sh status
-./scripts/streamlit_manager.sh logs
-```
-
-### Models
-
-```bash
-./scripts/pull_model.sh gemma3:4b-it-qat
-./scripts/list_models.sh
-./scripts/create_model.sh granite-custom ~/ollama-project/modelfiles/my.Modelfile
-./scripts/delete_model.sh granite-custom
-```
-
-## 11. Common issues
-
-### Permission denied in `/root/.ollama`
-
-This usually means the host model directory is not writable or the bind mount is missing an SELinux relabel.
-
-This project uses:
+The Streamlit interface exposes:
 
 ```text
--v ~/ollama-project/models:/root/.ollama:Z
+Max output tokens: 32 - 16384
+Context window tokens: 2048 - 16384
 ```
 
-If needed:
+The default configuration is:
 
-```bash
-mkdir -p ~/ollama-project/models
-chmod 700 ~/ollama-project/models
-chmod -R u+rwX ~/ollama-project/models
+```yaml
+default_num_predict: 16384
+default_num_ctx: 16384
 ```
 
-### Container is up but model pulls fail
+Some models may have a lower practical context window or may consume more memory with high values. Reduce the values in the sidebar if generation is slow or memory constrained.
 
-Check:
+## 9. Recreate the container after binding or volume changes
 
-- outbound DNS
-- proxy variables
-- free disk space
-- container logs
-
-### Streamlit does not stay running
-
-Check:
+Container port bindings and volume mounts are fixed when the container is created. After editing `.env` values such as `OLLAMA_HOST_BIND`, `OLLAMA_PORT`, or `OLLAMA_MODELS_DIR`, recreate the container:
 
 ```bash
-./scripts/streamlit_manager.sh logs
-./scripts/streamlit_manager.sh status
-```
-
-Also confirm the virtual environment exists and `streamlit` is installed in `~/ollama-project/venv`.
-
-### Streamlit page not reachable remotely
-
-Confirm:
-
-- `8505/tcp` is open in the host firewall
-- Streamlit is bound to `0.0.0.0`
-- the process is running according to `streamlit_manager.sh status`
-
-## 12. Recommended first-day validation
-
-```bash
-bash setup_environment.sh
 cd ~/ollama-project
-source venv/bin/activate
+./scripts/ollama_manager.sh rm
 ./scripts/ollama_manager.sh start
-./scripts/healthcheck.sh
-./scripts/pull_model.sh gemma3:4b-it-qat
-./scripts/list_models.sh
-./scripts/streamlit_manager.sh start
+```
+
+## 10. Firewall example
+
+On systems using `firewalld`:
+
+```bash
+sudo firewall-cmd --add-port=11434/tcp --permanent
+sudo firewall-cmd --add-port=8505/tcp --permanent
+sudo firewall-cmd --reload
+```
+
+Only open these ports on trusted networks.
+
+## 11. Troubleshooting
+
+### API is not reachable from another server
+
+Check the container binding:
+
+```bash
+podman ps --format "table {{.Names}}\t{{.Ports}}"
+```
+
+Expected binding:
+
+```text
+0.0.0.0:11434->11434/tcp
+```
+
+Check firewall rules:
+
+```bash
+sudo firewall-cmd --list-ports
+```
+
+### Streamlit is not reachable
+
+Check the background process:
+
+```bash
 ./scripts/streamlit_manager.sh status
+./scripts/streamlit_manager.sh logs
+```
+
+Expected binding:
+
+```text
+0.0.0.0:8505
+```
+
+### Permission denied on `/root/.ollama`
+
+Check the host models directory:
+
+```bash
+ls -ld ~/ollama-project/models
+chmod 700 ~/ollama-project/models
+```
+
+The container uses the SELinux relabel suffix `:Z` for the bind mount.
+
+### Model pull fails
+
+Confirm the container is running:
+
+```bash
+./scripts/ollama_manager.sh status
+```
+
+Then retry:
+
+```bash
+./scripts/pull_model.sh <model-name>
 ```

@@ -1,28 +1,24 @@
 # Ollama Testing Environment for IBM Power
 
-This project is the Ollama-based equivalent of your `vllm_p11_public` flow, adapted for IBM Power and the IBM container image:
+This project deploys an Ollama container on IBM Power / `ppc64le` and provides a Streamlit chat interface for model testing, streaming responses, and lightweight performance measurements.
 
-- `icr.io/ppc64le-oss/ollama-ppc64le:v0.17.6`
+Default container image:
 
-It keeps the same practical pattern as your vLLM project:
+```text
+icr.io/ppc64le-oss/ollama-ppc64le:v0.17.6
+```
 
-- local project under `~/ollama-project`
-- helper scripts for deployment and operations
-- Streamlit UI for model testing
-- persistent host-side model storage
-- lightweight documentation for daily operations
+## Features
 
-The repository structure on GitHub reflects the source project, and `setup_environment.sh` installs or refreshes the working copy under `~/ollama-project`. The current repo already uses that layout and includes your additional Fury wheel index for Python dependencies. citeturn232924view0turn532828view0
-
-## What changed in this revision
-
-This update aligns the project with the changes you made in your repo and host workflow:
-
-- `setup_environment.sh` uses your Fury option: `--prefer-binary --extra-index-url=https://repo.fury.io/mgiessing`. citeturn532828view0
-- Ollama container storage uses the SELinux-safe volume mount suffix `:Z`, which is the correct Podman pattern on SELinux-enabled systems. citeturn532828view0turn323234search0
-- Model download is now based on container CLI execution, matching your working syntax: `podman exec -it ollama-ppc64le ollama pull <model>`. This is consistent with Ollama’s CLI model workflow, including `ollama pull` and `ollama create`. citeturn101224search0turn101224search8
-- Streamlit now defaults to port `8505`.
-- Streamlit can now run permanently in the background through `scripts/streamlit_manager.sh`, using headless server mode, which Streamlit supports through command-line flags and configuration. citeturn323234search0turn323234search1turn323234search6
+- Ollama container lifecycle management with Podman or Docker
+- External Ollama API binding on `0.0.0.0:11434`
+- Persistent model storage under `~/ollama-project/models`
+- SELinux-safe Podman volume mount using `:Z`
+- In-container Ollama CLI model operations
+- Streamlit chat interface on `0.0.0.0:8505`
+- Streaming chat responses from the first generated token
+- Max output token and context window controls up to `16384`
+- Background Streamlit process management
 
 ## Project layout
 
@@ -53,6 +49,12 @@ ollama_p11_public/
     └── Modelfile.example
 ```
 
+`setup_environment.sh` installs the operational copy under:
+
+```text
+~/ollama-project
+```
+
 ## Quick start
 
 ```bash
@@ -64,46 +66,38 @@ source venv/bin/activate
 ./scripts/streamlit_manager.sh start
 ```
 
-Then open:
+Open the chat interface:
 
 ```text
 http://<server-ip>:8505
 ```
 
-## Main operating model
+The Ollama API is exposed externally at:
 
-### 1. Start the Ollama service container
-
-```bash
-cd ~/ollama-project
-./scripts/ollama_manager.sh start
+```text
+http://<server-ip>:11434/api
 ```
 
-### 2. Pull a model inside the running container
+## Runtime defaults
 
-This project now uses the same operational syntax you validated manually:
+| Component | Default |
+|---|---:|
+| Project directory | `~/ollama-project` |
+| Container runtime | `podman` if available, otherwise `docker` |
+| Container name | `ollama-ppc64le` |
+| Ollama image | `icr.io/ppc64le-oss/ollama-ppc64le:v0.17.6` |
+| Ollama bind address | `0.0.0.0` |
+| Ollama port | `11434` |
+| Local API host used by Streamlit | `127.0.0.1` |
+| Streamlit bind address | `0.0.0.0` |
+| Streamlit port | `8505` |
+| Model storage | `~/ollama-project/models` |
+| Max output tokens | `16384` |
+| Context window tokens | `16384` |
 
-```bash
-./scripts/pull_model.sh gemma3:4b-it-qat
-```
+## Main scripts
 
-Equivalent underlying command:
-
-```bash
-podman exec -it ollama-ppc64le ollama pull gemma3:4b-it-qat
-```
-
-### 3. Start Streamlit in background mode
-
-```bash
-./scripts/streamlit_manager.sh start
-./scripts/streamlit_manager.sh status
-./scripts/streamlit_manager.sh logs
-```
-
-## Script summary
-
-### Container lifecycle
+### Ollama container
 
 ```bash
 ./scripts/ollama_manager.sh start
@@ -113,6 +107,7 @@ podman exec -it ollama-ppc64le ollama pull gemma3:4b-it-qat
 ./scripts/ollama_manager.sh logs
 ./scripts/ollama_manager.sh shell
 ./scripts/ollama_manager.sh rm
+./scripts/ollama_manager.sh pull-image
 ```
 
 ### Model lifecycle
@@ -120,11 +115,17 @@ podman exec -it ollama-ppc64le ollama pull gemma3:4b-it-qat
 ```bash
 ./scripts/pull_model.sh gemma3:4b-it-qat
 ./scripts/list_models.sh
-./scripts/create_model.sh granite-custom ~/ollama-project/modelfiles/my.Modelfile
+./scripts/create_model.sh granite-custom ~/ollama-project/modelfiles/custom.Modelfile
 ./scripts/delete_model.sh granite-custom
 ```
 
-### Streamlit lifecycle
+The model scripts execute the Ollama CLI inside the running container. Example:
+
+```bash
+podman exec -it ollama-ppc64le ollama pull gemma3:4b-it-qat
+```
+
+### Streamlit service
 
 ```bash
 ./scripts/streamlit_manager.sh start
@@ -134,18 +135,48 @@ podman exec -it ollama-ppc64le ollama pull gemma3:4b-it-qat
 ./scripts/streamlit_manager.sh logs
 ```
 
-## Notes for IBM Power and Podman
+## Configuration files
 
-- Ollama’s API is normally exposed on `http://localhost:11434/api`. citeturn793305search2
-- Ollama model pulls are supported both by API and CLI, but this project now prefers the in-container CLI for pull/create/delete/list because that matches your validated runtime behavior on Power. citeturn793305search1turn101224search0turn101224search8
-- Streamlit’s server port and headless mode are controlled through command-line flags or `config.toml`; this project uses both so it behaves predictably in unattended operation. citeturn323234search0turn323234search1
-
-## Suggested first validation sequence
+### `~/ollama-project/.env`
 
 ```bash
-bash setup_environment.sh
+CONTAINER_RUNTIME=podman
+CONTAINER_NAME=ollama-ppc64le
+OLLAMA_IMAGE=icr.io/ppc64le-oss/ollama-ppc64le:v0.17.6
+OLLAMA_HOST_BIND=0.0.0.0
+OLLAMA_API_HOST=127.0.0.1
+OLLAMA_PORT=11434
+STREAMLIT_HOST=0.0.0.0
+STREAMLIT_PORT=8505
+PROJECT_DIR=${HOME}/ollama-project
+OLLAMA_MODELS_DIR=${HOME}/ollama-project/models
+OLLAMA_KEEP_ALIVE=10m
+OLLAMA_ORIGINS=*
+HTTPS_PROXY=
+NO_PROXY=127.0.0.1,localhost
+```
+
+### `~/ollama-project/streamlit/config.yaml`
+
+```yaml
+api_scheme: http
+api_host: 127.0.0.1
+ollama_bind_host: 0.0.0.0
+container_port: 11434
+streamlit_host: 0.0.0.0
+streamlit_port: 8505
+default_temperature: 0.7
+default_num_predict: 16384
+default_num_ctx: 16384
+default_keep_alive: 10m
+```
+
+`api_host` is the address used by the local Streamlit process to call Ollama. `ollama_bind_host` and `OLLAMA_HOST_BIND` control the external container port binding.
+
+## Validation
+
+```bash
 cd ~/ollama-project
-source venv/bin/activate
 ./scripts/ollama_manager.sh start
 ./scripts/healthcheck.sh
 ./scripts/pull_model.sh gemma3:4b-it-qat
@@ -154,10 +185,12 @@ source venv/bin/activate
 ./scripts/streamlit_manager.sh status
 ```
 
-## Current defaults
+From another server on the network:
 
-- Ollama API bind: `127.0.0.1:11434`
-- Streamlit bind: `0.0.0.0:8505`
-- Container name: `ollama-ppc64le`
-- Project root: `~/ollama-project`
-- Model storage: `~/ollama-project/models`
+```bash
+curl http://<server-ip>:11434/api/tags
+```
+
+## Security note
+
+Binding Ollama to `0.0.0.0` makes the API reachable from other machines that can access the server and port. Use firewall rules, network segmentation, or a reverse proxy if the server is on a shared or untrusted network.
