@@ -6,7 +6,7 @@ ENV_FILE="${BASE_DIR}/.env"
 [[ -f "${ENV_FILE}" ]] && source "${ENV_FILE}"
 
 RUNTIME="${CONTAINER_RUNTIME:-podman}"
-NAME="${CONTAINER_NAME:-ollama-ppc64le}"
+NAME="${CONTAINER_NAME:-ollama}"
 IMAGE="${OLLAMA_IMAGE:-icr.io/ppc64le-oss/ollama-ppc64le:v0.17.6}"
 PORT="${OLLAMA_PORT:-11434}"
 HOST_BIND="${OLLAMA_HOST_BIND:-0.0.0.0}"
