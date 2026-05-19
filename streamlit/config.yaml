@@ -2,7 +2,7 @@ project_dir: ~/ollama-project
 models_dir: ~/ollama-project/models
 logs_dir: ~/ollama-project/logs
 modelfiles_dir: ~/ollama-project/modelfiles
-container_name: ollama-ppc64le
+container_name: ollama
 api_scheme: http
 host_bind: 127.0.0.1
 container_port: 11434

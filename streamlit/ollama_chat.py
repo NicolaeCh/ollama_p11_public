@@ -88,7 +88,7 @@ def container_status() -> Dict[str, str]:
     for runtime in ("podman", "docker"):
         try:
             result = subprocess.run(
-                [runtime, "ps", "-a", "--filter", "name=ollama-ppc64le", "--format", "{{.Status}}"],
+                [runtime, "ps", "-a", "--filter", "name=ollama", "--format", "{{.Status}}"],
                 capture_output=True,
                 text=True,
                 timeout=5,
