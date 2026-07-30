@@ -6,7 +6,7 @@ MODELS_DIR="${PROJECT_DIR}/models"
 LOGS_DIR="${PROJECT_DIR}/logs"
 MODELFILES_DIR="${PROJECT_DIR}/modelfiles"
 ENV_FILE="${PROJECT_DIR}/.env"
-IMAGE="icr.io/ppc64le-oss/ollama-ppc64le:v0.17.6"
+IMAGE="quay.io/andre_lutz/ollama-ppc64le"
 FURY="--prefer-binary --extra-index-url=https://repo.fury.io/mgiessing"
 
 say() { printf '%s\n' "$*"; }
