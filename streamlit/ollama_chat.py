@@ -13,7 +13,7 @@ import requests
 import streamlit as st
 import yaml
 
-PROJECT_DIR = Path.home() / "ollama-project"
+PROJECT_DIR = Path.home() 
 CONFIG_FILE = PROJECT_DIR / "streamlit" / "config.yaml"
 SCRIPTS_DIR = PROJECT_DIR / "scripts"
 MAX_TOKENS = 16_384
