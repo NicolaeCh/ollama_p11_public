@@ -7,7 +7,7 @@ ENV_FILE="${BASE_DIR}/.env"
 
 RUNTIME="${CONTAINER_RUNTIME:-podman}"
 NAME="${CONTAINER_NAME:-ollama-ppc64le}"
-IMAGE="${OLLAMA_IMAGE:-icr.io/ppc64le-oss/ollama-ppc64le:v0.17.6}"
+IMAGE="${OLLAMA_IMAGE:-quay.io/andre_lutz/ollama-ppc64le}"
 PORT="${OLLAMA_PORT:-11434}"
 HOST_BIND="${OLLAMA_HOST_BIND:-0.0.0.0}"
 MODELS_DIR="${OLLAMA_MODELS_DIR:-${BASE_DIR}/models}"
