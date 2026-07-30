@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -16,6 +17,22 @@ PROJECT_DIR = Path.home() / "ollama-project"
 CONFIG_FILE = PROJECT_DIR / "streamlit" / "config.yaml"
 SCRIPTS_DIR = PROJECT_DIR / "scripts"
 MAX_TOKENS = 16_384
+
+
+def load_env_file(path: Path) -> Dict[str, str]:
+    values: Dict[str, str] = {}
+    if not path.exists():
+        return values
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
+ENV_VALUES = load_env_file(PROJECT_DIR / ".env")
 
 
 def load_config() -> Dict[str, Any]:
@@ -33,6 +50,7 @@ def load_config() -> Dict[str, Any]:
         "default_num_predict": MAX_TOKENS,
         "default_num_ctx": MAX_TOKENS,
         "default_keep_alive": "10m",
+        "default_num_thread": int(ENV_VALUES.get("OLLAMA_NUM_THREADS", "16")),
     }
     if CONFIG_FILE.exists():
         with open(CONFIG_FILE, "r", encoding="utf-8") as fh:
@@ -180,6 +198,7 @@ def chat_stream(
     num_predict: int,
     num_ctx: int,
     keep_alive: str,
+    num_thread: int,
     stats: Dict[str, Any],
 ) -> Iterator[str]:
     payload = {
@@ -190,6 +209,7 @@ def chat_stream(
             "temperature": temperature,
             "num_predict": num_predict,
             "num_ctx": num_ctx,
+            "num_thread": num_thread,
         },
         "keep_alive": keep_alive,
     }
@@ -217,7 +237,7 @@ def chat_stream(
     stats.update(calculate_metrics(final, started, first_token_at, finished))
 
 
-def chat_once(model: str, messages: List[Dict[str, str]], temperature: float, num_predict: int, num_ctx: int, keep_alive: str) -> Dict[str, Any]:
+def chat_once(model: str, messages: List[Dict[str, str]], temperature: float, num_predict: int, num_ctx: int, keep_alive: str, num_thread: int) -> Dict[str, Any]:
     payload = {
         "model": model,
         "messages": messages,
@@ -226,6 +246,7 @@ def chat_once(model: str, messages: List[Dict[str, str]], temperature: float, nu
             "temperature": temperature,
             "num_predict": num_predict,
             "num_ctx": num_ctx,
+            "num_thread": num_thread,
         },
         "keep_alive": keep_alive,
     }
@@ -357,6 +378,16 @@ def main() -> None:
             min(int(CONFIG.get("default_num_ctx", MAX_TOKENS)), MAX_TOKENS),
             512,
         )
+        num_thread = int(CONFIG.get("default_num_thread", 16))
+        st.number_input(
+            "CPU inference threads",
+            min_value=1,
+            max_value=1024,
+            value=num_thread,
+            disabled=True,
+            help="Controlled by OLLAMA_NUM_THREADS in ~/ollama-project/.env. Restart Streamlit after changing it.",
+        )
+        st.caption(f"Configured by .env: OLLAMA_NUM_THREADS={num_thread}")
         keep_alive = st.text_input("Keep alive", value=str(CONFIG["default_keep_alive"]))
 
     st.title("Ollama Chat Interface")
@@ -389,6 +420,7 @@ def main() -> None:
                                 num_predict,
                                 num_ctx,
                                 keep_alive,
+                                num_thread,
                                 stats,
                             )
                         )
@@ -428,6 +460,7 @@ def main() -> None:
                             8,
                             num_ctx,
                             keep_alive,
+                            num_thread,
                         )
                         st.success(f"Model warmed. Response: {result['content']}")
                     except Exception as exc:

@@ -1,154 +1,94 @@
-# Deployment Guide
+# Deployment Guide — Ollama on IBM Power
 
-This guide describes a clean deployment of the Ollama testing environment on IBM Power Linux.
+## 1. Platform requirements
 
-## 1. Requirements
+- IBM Power LPAR running RHEL 10 or another supported ppc64le Linux distribution
+- Podman recommended
+- Python 3 and the Python venv package
+- At least 16 logical CPUs visible to the LPAR when `OLLAMA_NUM_THREADS=16`
+- Sufficient RAM for the selected model and context window
 
-- IBM Power server with `ppc64le` Linux
-- Podman or Docker
-- Python 3
-- Network access to pull the container image
-- Optional: firewall access for ports `11434` and `8505`
+Verify CPU entitlement and visibility before deployment:
 
-Default image:
-
-```text
-icr.io/ppc64le-oss/ollama-ppc64le:v0.17.6
+```bash
+nproc
+lscpu
 ```
 
-## 2. Install the project
+On PowerVM, also verify the LPAR has enough virtual processors and entitled/shared processor capacity. A request for 16 software threads cannot overcome a low processor entitlement or a container CPU restriction.
 
-From the repository directory:
+## 2. Install
 
 ```bash
 bash setup_environment.sh
-```
-
-The installer creates or refreshes:
-
-```text
-~/ollama-project
-```
-
-It also creates:
-
-```text
-~/ollama-project/venv
-~/ollama-project/models
-~/ollama-project/logs
-~/ollama-project/modelfiles
-```
-
-Python dependencies are installed with:
-
-```bash
-pip install -r streamlit/requirements.txt --prefer-binary --extra-index-url=https://repo.fury.io/mgiessing
-```
-
-## 3. Start the Ollama container
-
-```bash
 cd ~/ollama-project
+source venv/bin/activate
+```
+
+Python packages are installed with the ppc64le binary repository:
+
+```bash
+pip install -r streamlit/requirements.txt \
+  --prefer-binary \
+  --extra-index-url=https://repo.fury.io/mgiessing
+```
+
+## 3. Configure `.env`
+
+The principal CPU setting is:
+
+```bash
+OLLAMA_NUM_THREADS=16
+```
+
+Recommended baseline:
+
+```bash
+OLLAMA_CONTEXT_LENGTH=16384
+OLLAMA_NUM_THREADS=16
+OLLAMA_NUM_PARALLEL=1
+OLLAMA_MAX_LOADED_MODELS=1
+OLLAMA_MAX_QUEUE=64
+OLLAMA_CONTAINER_CPUS=
+OLLAMA_CPUSET_CPUS=
+```
+
+`OLLAMA_NUM_THREADS` is read by the Streamlit process and supplied to Ollama as `options.num_thread` on every `/api/chat` request. The test script supplies the same value to `/api/generate`.
+
+Do not confuse this with `OLLAMA_NUM_PARALLEL`. Parallel request slots provide concurrency, not additional threads for one generation, and multiply context-memory requirements.
+
+## 4. Start Ollama
+
+```bash
 ./scripts/ollama_manager.sh start
-```
-
-Check status and logs:
-
-```bash
 ./scripts/ollama_manager.sh status
-./scripts/ollama_manager.sh logs
+./scripts/ollama_manager.sh cpu-info
 ```
 
-The container publishes Ollama as:
+The expected ports are:
 
 ```text
-0.0.0.0:11434 -> container:11434
+0.0.0.0:11434 -> Ollama API
+0.0.0.0:8505  -> Streamlit UI
 ```
-
-Inside the container, Ollama is configured with:
-
-```text
-OLLAMA_HOST=0.0.0.0:11434
-OLLAMA_MODELS=/root/.ollama/models
-```
-
-The host model directory is mounted as:
-
-```text
-~/ollama-project/models:/root/.ollama:Z
-```
-
-## 4. Validate the Ollama API
-
-From the IBM Power host:
-
-```bash
-./scripts/healthcheck.sh
-```
-
-From another server:
-
-```bash
-curl http://<server-ip>:11434/api/tags
-```
-
-If remote access fails, check the host firewall and any network ACLs between the client and the Power server.
 
 ## 5. Pull a model
-
-Model operations run the Ollama CLI inside the container.
 
 ```bash
 ./scripts/pull_model.sh gemma3:4b-it-qat
 ```
 
-Equivalent command:
+Equivalent Podman command:
 
 ```bash
 podman exec -it ollama-ppc64le ollama pull gemma3:4b-it-qat
 ```
 
-List local models:
+## 6. Start Streamlit
 
 ```bash
-./scripts/list_models.sh
-```
-
-Delete a model:
-
-```bash
-./scripts/delete_model.sh <model-name>
-```
-
-## 6. Create a custom model from a Modelfile
-
-Create a Modelfile under:
-
-```text
-~/ollama-project/modelfiles
-```
-
-Example:
-
-```bash
-cp ~/ollama-project/templates/Modelfile.example ~/ollama-project/modelfiles/custom.Modelfile
-vi ~/ollama-project/modelfiles/custom.Modelfile
-./scripts/create_model.sh granite-custom ~/ollama-project/modelfiles/custom.Modelfile
-```
-
-## 7. Start Streamlit in background mode
-
-```bash
-source ~/ollama-project/venv/bin/activate
-cd ~/ollama-project
 ./scripts/streamlit_manager.sh start
-```
-
-Check status and logs:
-
-```bash
 ./scripts/streamlit_manager.sh status
-./scripts/streamlit_manager.sh logs
 ```
 
 Open:
@@ -157,39 +97,93 @@ Open:
 http://<server-ip>:8505
 ```
 
-The UI uses streaming Ollama chat requests. Assistant responses are displayed while tokens are generated, without waiting for the full response.
-
-## 8. Token settings
-
-The Streamlit interface exposes:
-
-```text
-Max output tokens: 32 - 16384
-Context window tokens: 2048 - 16384
-```
-
-The default configuration is:
-
-```yaml
-default_num_predict: 16384
-default_num_ctx: 16384
-```
-
-Some models may have a lower practical context window or may consume more memory with high values. Reduce the values in the sidebar if generation is slow or memory constrained.
-
-## 9. Recreate the container after binding or volume changes
-
-Container port bindings and volume mounts are fixed when the container is created. After editing `.env` values such as `OLLAMA_HOST_BIND`, `OLLAMA_PORT`, or `OLLAMA_MODELS_DIR`, recreate the container:
+The thread count displayed in the sidebar is read-only and comes from `.env`. Restart Streamlit after editing the value:
 
 ```bash
-cd ~/ollama-project
-./scripts/ollama_manager.sh rm
-./scripts/ollama_manager.sh start
+./scripts/streamlit_manager.sh restart
 ```
 
-## 10. Firewall example
+## 7. Verify multithreaded inference
 
-On systems using `firewalld`:
+Terminal 1:
+
+```bash
+nmon
+```
+
+Terminal 2:
+
+```bash
+./scripts/thread_test.sh gemma3:4b-it-qat \
+  "Write a detailed technical explanation of PowerVM processor virtualization."
+```
+
+Terminal 3:
+
+```bash
+podman logs -f ollama-ppc64le
+```
+
+The test sends:
+
+```json
+"options": {
+  "num_thread": 16,
+  "num_ctx": 16384,
+  "num_predict": 512
+}
+```
+
+A short prompt, model loading, token sampling, or the final part of generation may not keep all threads busy continuously. Judge utilization during a sustained prompt-evaluation or generation interval, not only from a single instantaneous `top` sample.
+
+## 8. CPU restrictions
+
+Check the container view:
+
+```bash
+./scripts/ollama_manager.sh cpu-info
+```
+
+Optional restriction variables:
+
+```bash
+OLLAMA_CONTAINER_CPUS=16
+OLLAMA_CPUSET_CPUS=0-15
+```
+
+They are empty by default. Setting them constrains the container; they do not increase the LPAR's available CPU capacity. After changing either value:
+
+```bash
+./scripts/ollama_manager.sh recreate
+```
+
+## 9. Direct API clients
+
+Any application bypassing Streamlit must explicitly send `options.num_thread`:
+
+```bash
+curl http://<server-ip>:11434/api/generate \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model":"gemma3:4b-it-qat",
+    "prompt":"Explain simultaneous multithreading on IBM Power.",
+    "stream":false,
+    "options":{"num_thread":16,"num_ctx":16384,"num_predict":512}
+  }'
+```
+
+## 10. Troubleshooting one-CPU utilization
+
+1. Confirm the actual request contains `num_thread`.
+2. Run `./scripts/ollama_manager.sh cpu-info`.
+3. Check `nproc` on the host and inside the container.
+4. Ensure `OLLAMA_CONTAINER_CPUS` and `OLLAMA_CPUSET_CPUS` are empty or permit at least 16 logical CPUs.
+5. Check PowerVM virtual processors and entitlement.
+6. Use a sufficiently long generation test.
+7. Recreate the container after changing container CPU controls.
+8. Restart Streamlit after changing `OLLAMA_NUM_THREADS`.
+
+## 11. Firewall
 
 ```bash
 sudo firewall-cmd --add-port=11434/tcp --permanent
@@ -197,66 +191,4 @@ sudo firewall-cmd --add-port=8505/tcp --permanent
 sudo firewall-cmd --reload
 ```
 
-Only open these ports on trusted networks.
-
-## 11. Troubleshooting
-
-### API is not reachable from another server
-
-Check the container binding:
-
-```bash
-podman ps --format "table {{.Names}}\t{{.Ports}}"
-```
-
-Expected binding:
-
-```text
-0.0.0.0:11434->11434/tcp
-```
-
-Check firewall rules:
-
-```bash
-sudo firewall-cmd --list-ports
-```
-
-### Streamlit is not reachable
-
-Check the background process:
-
-```bash
-./scripts/streamlit_manager.sh status
-./scripts/streamlit_manager.sh logs
-```
-
-Expected binding:
-
-```text
-0.0.0.0:8505
-```
-
-### Permission denied on `/root/.ollama`
-
-Check the host models directory:
-
-```bash
-ls -ld ~/ollama-project/models
-chmod 700 ~/ollama-project/models
-```
-
-The container uses the SELinux relabel suffix `:Z` for the bind mount.
-
-### Model pull fails
-
-Confirm the container is running:
-
-```bash
-./scripts/ollama_manager.sh status
-```
-
-Then retry:
-
-```bash
-./scripts/pull_model.sh <model-name>
-```
+Restrict these ports to trusted subnets whenever possible.

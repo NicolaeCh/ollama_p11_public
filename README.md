@@ -1,61 +1,18 @@
-# Ollama Testing Environment for IBM Power
+# Ollama on IBM Power (ppc64le)
 
-This project deploys an Ollama container on IBM Power / `ppc64le` and provides a Streamlit chat interface for model testing, streaming responses, and lightweight performance measurements.
+A deployable Ollama environment for IBM Power Linux using Podman, the IBM Power Ollama container, a streaming Streamlit chat interface, persistent model storage, and environment-controlled CPU inference threads.
 
-Default container image:
+## Components
 
-```text
-icr.io/ppc64le-oss/ollama-ppc64le:v0.17.6
-```
+- Ollama container: `icr.io/ppc64le-oss/ollama-ppc64le:v0.17.6`
+- Podman or Docker runtime
+- Streamlit chat on TCP port `8505`
+- Ollama API on TCP port `11434`
+- Persistent storage under `~/ollama-project/models`
+- Streaming responses from the first generated token
+- CPU thread count controlled by `OLLAMA_NUM_THREADS` in `.env`
 
-## Features
-
-- Ollama container lifecycle management with Podman or Docker
-- External Ollama API binding on `0.0.0.0:11434`
-- Persistent model storage under `~/ollama-project/models`
-- SELinux-safe Podman volume mount using `:Z`
-- In-container Ollama CLI model operations
-- Streamlit chat interface on `0.0.0.0:8505`
-- Streaming chat responses from the first generated token
-- Max output token and context window controls up to `16384`
-- Background Streamlit process management
-
-## Project layout
-
-```text
-ollama_p11_public/
-├── docker-compose.yml
-├── .env.example
-├── README.md
-├── DEPLOYMENT_GUIDE.md
-├── QUICK_REFERENCE.md
-├── requirements.txt
-├── setup_environment.sh
-├── .streamlit/
-│   └── config.toml
-├── scripts/
-│   ├── ollama_manager.sh
-│   ├── streamlit_manager.sh
-│   ├── healthcheck.sh
-│   ├── pull_model.sh
-│   ├── create_model.sh
-│   ├── delete_model.sh
-│   └── list_models.sh
-├── streamlit/
-│   ├── ollama_chat.py
-│   ├── config.yaml
-│   └── requirements.txt
-└── templates/
-    └── Modelfile.example
-```
-
-`setup_environment.sh` installs the operational copy under:
-
-```text
-~/ollama-project
-```
-
-## Quick start
+## Installation
 
 ```bash
 bash setup_environment.sh
@@ -66,78 +23,57 @@ source venv/bin/activate
 ./scripts/streamlit_manager.sh start
 ```
 
-Open the chat interface:
+Open:
 
 ```text
 http://<server-ip>:8505
 ```
 
-The Ollama API is exposed externally at:
+The Ollama API is exposed at:
 
 ```text
 http://<server-ip>:11434/api
 ```
 
-## Runtime defaults
+## CPU thread configuration
 
-| Component | Default |
-|---|---:|
-| Project directory | `~/ollama-project` |
-| Container runtime | `podman` if available, otherwise `docker` |
-| Container name | `ollama-ppc64le` |
-| Ollama image | `icr.io/ppc64le-oss/ollama-ppc64le:v0.17.6` |
-| Ollama bind address | `0.0.0.0` |
-| Ollama port | `11434` |
-| Local API host used by Streamlit | `127.0.0.1` |
-| Streamlit bind address | `0.0.0.0` |
-| Streamlit port | `8505` |
-| Model storage | `~/ollama-project/models` |
-| Max output tokens | `16384` |
-| Context window tokens | `16384` |
-
-## Main scripts
-
-### Ollama container
+Edit `~/ollama-project/.env`:
 
 ```bash
-./scripts/ollama_manager.sh start
-./scripts/ollama_manager.sh stop
-./scripts/ollama_manager.sh restart
-./scripts/ollama_manager.sh status
-./scripts/ollama_manager.sh logs
-./scripts/ollama_manager.sh shell
-./scripts/ollama_manager.sh rm
-./scripts/ollama_manager.sh pull-image
+OLLAMA_NUM_THREADS=16
 ```
 
-### Model lifecycle
+This value is included as Ollama's `options.num_thread` parameter in every generation request made by the Streamlit application and by `scripts/thread_test.sh`. This is the setting that controls the number of CPU inference worker threads for one request.
+
+After changing it, restart Streamlit:
 
 ```bash
-./scripts/pull_model.sh gemma3:4b-it-qat
-./scripts/list_models.sh
-./scripts/create_model.sh granite-custom ~/ollama-project/modelfiles/custom.Modelfile
-./scripts/delete_model.sh granite-custom
-```
-
-The model scripts execute the Ollama CLI inside the running container. Example:
-
-```bash
-podman exec -it ollama-ppc64le ollama pull gemma3:4b-it-qat
-```
-
-### Streamlit service
-
-```bash
-./scripts/streamlit_manager.sh start
-./scripts/streamlit_manager.sh stop
 ./scripts/streamlit_manager.sh restart
-./scripts/streamlit_manager.sh status
-./scripts/streamlit_manager.sh logs
 ```
 
-## Configuration files
+The Ollama container does not need recreation merely for `OLLAMA_NUM_THREADS`, because this project applies the value at request time. Recreate it after changing container environment, port, volume, CPU quota, or CPU affinity settings:
 
-### `~/ollama-project/.env`
+```bash
+./scripts/ollama_manager.sh recreate
+```
+
+Check CPU visibility:
+
+```bash
+./scripts/ollama_manager.sh cpu-info
+```
+
+Run a sustained inference test while watching `top`, `htop`, or `nmon`:
+
+```bash
+./scripts/thread_test.sh gemma3:4b-it-qat
+```
+
+## Important distinction
+
+`OLLAMA_NUM_THREADS` controls worker threads used by a single model inference request. `OLLAMA_NUM_PARALLEL` controls how many requests one loaded model can process concurrently. Increasing `OLLAMA_NUM_PARALLEL` does not make one response use more CPU threads and increases memory requirements.
+
+## Main configuration
 
 ```bash
 CONTAINER_RUNTIME=podman
@@ -148,49 +84,53 @@ OLLAMA_API_HOST=127.0.0.1
 OLLAMA_PORT=11434
 STREAMLIT_HOST=0.0.0.0
 STREAMLIT_PORT=8505
-PROJECT_DIR=${HOME}/ollama-project
-OLLAMA_MODELS_DIR=${HOME}/ollama-project/models
-OLLAMA_KEEP_ALIVE=10m
-OLLAMA_ORIGINS=*
-HTTPS_PROXY=
-NO_PROXY=127.0.0.1,localhost
+OLLAMA_CONTEXT_LENGTH=16384
+OLLAMA_NUM_THREADS=16
+OLLAMA_NUM_PARALLEL=1
+OLLAMA_MAX_LOADED_MODELS=1
+OLLAMA_MAX_QUEUE=64
+OLLAMA_CONTAINER_CPUS=
+OLLAMA_CPUSET_CPUS=
 ```
 
-### `~/ollama-project/streamlit/config.yaml`
+Leave `OLLAMA_CONTAINER_CPUS` and `OLLAMA_CPUSET_CPUS` empty unless you intentionally want to restrict the container. A CPU quota or CPU set smaller than `OLLAMA_NUM_THREADS` prevents Ollama from using the requested thread count effectively.
 
-```yaml
-api_scheme: http
-api_host: 127.0.0.1
-ollama_bind_host: 0.0.0.0
-container_port: 11434
-streamlit_host: 0.0.0.0
-streamlit_port: 8505
-default_temperature: 0.7
-default_num_predict: 16384
-default_num_ctx: 16384
-default_keep_alive: 10m
-```
-
-`api_host` is the address used by the local Streamlit process to call Ollama. `ollama_bind_host` and `OLLAMA_HOST_BIND` control the external container port binding.
-
-## Validation
+## Management commands
 
 ```bash
-cd ~/ollama-project
 ./scripts/ollama_manager.sh start
-./scripts/healthcheck.sh
-./scripts/pull_model.sh gemma3:4b-it-qat
+./scripts/ollama_manager.sh stop
+./scripts/ollama_manager.sh restart
+./scripts/ollama_manager.sh recreate
+./scripts/ollama_manager.sh status
+./scripts/ollama_manager.sh logs
+./scripts/ollama_manager.sh cpu-info
+
+./scripts/pull_model.sh <model>
 ./scripts/list_models.sh
+./scripts/delete_model.sh <model>
+
 ./scripts/streamlit_manager.sh start
+./scripts/streamlit_manager.sh stop
+./scripts/streamlit_manager.sh restart
 ./scripts/streamlit_manager.sh status
+./scripts/streamlit_manager.sh logs
 ```
 
-From another server on the network:
+## External API clients
 
-```bash
-curl http://<server-ip>:11434/api/tags
+A client that calls Ollama directly must also include `num_thread` in `options`; server environment variables do not globally replace the per-request Ollama parameter:
+
+```json
+{
+  "model": "gemma3:4b-it-qat",
+  "prompt": "Explain IBM Power SMT.",
+  "stream": true,
+  "options": {
+    "num_thread": 16,
+    "num_ctx": 16384
+  }
+}
 ```
 
-## Security note
-
-Binding Ollama to `0.0.0.0` makes the API reachable from other machines that can access the server and port. Use firewall rules, network segmentation, or a reverse proxy if the server is on a shared or untrusted network.
+Use a trusted network, host firewall, or authenticated reverse proxy because the native Ollama API does not provide application-level authentication.
