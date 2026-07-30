@@ -10,7 +10,7 @@ LOGS_DIR="${PROJECT_DIR}/logs"
 MODELFILES_DIR="${PROJECT_DIR}/modelfiles"
 TEMPLATES_DIR="${PROJECT_DIR}/templates"
 ENV_FILE="${PROJECT_DIR}/.env"
-IMAGE="icr.io/ppc64le-oss/ollama-ppc64le:v0.17.6"
+IMAGE="quay.io/andre_lutz/ollama-ppc64le"
 FURY="--prefer-binary --extra-index-url=https://repo.fury.io/mgiessing"
 STREAMLIT_PORT="8505"
 STREAMLIT_HOST="0.0.0.0"
@@ -73,7 +73,7 @@ cat > "${ENV_FILE}" <<ENV
 CONTAINER_RUNTIME=${RUNTIME}
 CONTAINER_NAME=ollama-ppc64le
 OLLAMA_IMAGE=${IMAGE}
-OLLAMA_HOST_BIND=127.0.0.1
+OLLAMA_HOST_BIND=0.0.0.0
 OLLAMA_PORT=11434
 STREAMLIT_HOST=${STREAMLIT_HOST}
 STREAMLIT_PORT=${STREAMLIT_PORT}
@@ -92,7 +92,7 @@ logs_dir: ${LOGS_DIR}
 modelfiles_dir: ${MODELFILES_DIR}
 container_name: ollama-ppc64le
 api_scheme: http
-host_bind: 127.0.0.1
+host_bind: 0.0.0.0
 container_port: 11434
 streamlit_host: ${STREAMLIT_HOST}
 streamlit_port: ${STREAMLIT_PORT}
