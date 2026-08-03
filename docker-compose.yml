@@ -17,4 +17,15 @@ services:
       NO_PROXY: ${NO_PROXY:-127.0.0.1,localhost}
     volumes:
       - ${OLLAMA_MODELS_DIR:-./models}:/root/.ollama:Z
+    networks:
+      - ollama-net
+      - n8n-backend
     restart: unless-stopped
+networks:
+  ollama-net:
+    name: ollama-net-local
+    driver: bridge
+
+  n8n-backend:
+    external: true
+    name: n8n-ppc64le_n8n_net
