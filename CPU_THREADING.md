@@ -1,37 +1,53 @@
 # CPU Threading on IBM Power
 
-The `ollama-server` process appearing near 100% CPU in `top` or `nmon` means approximately one logical CPU is busy. The original project configured token and context parameters but did not send Ollama's `num_thread` inference option, so the application relied entirely on Ollama's automatic CPU selection.
+The project separates three different controls:
 
-This project uses:
+1. `OLLAMA_NUM_THREADS`: inference threads requested in each Ollama API call made by the supplied applications.
+2. `OLLAMA_CONTAINER_CPUS`: Compose CPU quota available to the Ollama container.
+3. `OLLAMA_NUM_PARALLEL`: number of requests Ollama may process concurrently for one model.
 
-```bash
+For a 16-thread deployment:
+
+```dotenv
 OLLAMA_NUM_THREADS=16
+OLLAMA_CONTAINER_CPUS=16
+OLLAMA_NUM_PARALLEL=1
 ```
 
-The Streamlit application reads this variable from `.env` and sends:
+The Streamlit chat sends:
 
 ```json
 "options": {
-  "num_thread": 16
+  "num_thread": 16,
+  "num_ctx": 16384,
+  "num_predict": 512
 }
 ```
 
-for every generation. The value is also used by `scripts/thread_test.sh`.
+Changing only `OLLAMA_NUM_PARALLEL` does not increase the CPU threads used for one answer.
 
-The server variables `OLLAMA_NUM_PARALLEL`, `OLLAMA_MAX_LOADED_MODELS`, and `OLLAMA_MAX_QUEUE` have different purposes. They manage request concurrency, model residency, and queue depth. They do not determine the CPU worker count for one response.
+## IBM Power interpretation
 
-On IBM Power, check all four layers:
-
-1. LPAR virtual processors and processing entitlement.
-2. Linux online CPUs (`nproc`, `lscpu`).
-3. Podman CPU quota and affinity.
-4. Ollama request option `num_thread`.
-
-Use:
+Linux logical CPUs are SMT hardware threads, not necessarily physical cores. With SMT8, 16 logical CPUs can represent two physical cores. Check:
 
 ```bash
-./scripts/ollama_manager.sh cpu-info
-./scripts/thread_test.sh <model>
+nproc
+lscpu
+ppc64_cpu --smt
+lparstat -i
+lparstat 1
 ```
 
-A model must be actively evaluating a sufficiently long prompt or generating enough tokens before CPU utilization can be assessed reliably.
+The LPAR must have sufficient virtual processors and entitlement. A container cannot use CPU capacity that is not available to the RHEL LPAR.
+
+## Verification sequence
+
+```bash
+./scripts/ollama_manager.sh config
+./scripts/ollama_manager.sh recreate
+./scripts/streamlit_manager.sh restart
+./scripts/ollama_manager.sh verify
+./scripts/thread_test.sh gemma3:4b-it-qat
+```
+
+Monitor with `nmon`, `top`, or `podman stats` during a long generation. Very short prompts may not sustain enough work to make all configured threads visible in a sampling tool.

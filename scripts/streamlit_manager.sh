@@ -5,7 +5,7 @@ BASE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="${BASE_DIR}/.env"
 [[ -f "${ENV_FILE}" ]] && source "${ENV_FILE}"
 
-PROJECT_DIR="${PROJECT_DIR:-${BASE_DIR}}"
+PROJECT_DIR="${BASE_DIR}"
 STREAMLIT_DIR="${PROJECT_DIR}/streamlit"
 LOGS_DIR="${PROJECT_DIR}/logs"
 VENV_DIR="${PROJECT_DIR}/venv"

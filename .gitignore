@@ -1,4 +1,8 @@
+.env
 venv/
 cache/
 logs/
 models/
+modelfiles/
+__pycache__/
+*.pyc

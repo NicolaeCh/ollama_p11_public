@@ -13,7 +13,7 @@ import requests
 import streamlit as st
 import yaml
 
-PROJECT_DIR = Path.home() 
+PROJECT_DIR = Path(__file__).resolve().parent.parent
 CONFIG_FILE = PROJECT_DIR / "streamlit" / "config.yaml"
 SCRIPTS_DIR = PROJECT_DIR / "scripts"
 MAX_TOKENS = 16_384
@@ -56,6 +56,17 @@ def load_config() -> Dict[str, Any]:
         with open(CONFIG_FILE, "r", encoding="utf-8") as fh:
             loaded = yaml.safe_load(fh) or {}
         default.update(loaded)
+
+    # Runtime values in .env are authoritative. This is deliberately applied
+    # after config.yaml so a stale YAML default cannot override deployment
+    # settings.
+    default["api_host"] = ENV_VALUES.get("OLLAMA_API_HOST", str(default["api_host"]))
+    default["container_port"] = int(ENV_VALUES.get("OLLAMA_PORT", str(default["container_port"])))
+    default["streamlit_host"] = ENV_VALUES.get("STREAMLIT_HOST", str(default["streamlit_host"]))
+    default["streamlit_port"] = int(ENV_VALUES.get("STREAMLIT_PORT", str(default["streamlit_port"])))
+    default["default_num_ctx"] = int(ENV_VALUES.get("OLLAMA_CONTEXT_LENGTH", str(default["default_num_ctx"])))
+    default["default_num_thread"] = int(ENV_VALUES.get("OLLAMA_NUM_THREADS", str(default["default_num_thread"])))
+    default["default_keep_alive"] = ENV_VALUES.get("OLLAMA_KEEP_ALIVE", str(default["default_keep_alive"]))
     return default
 
 
@@ -385,7 +396,7 @@ def main() -> None:
             max_value=1024,
             value=num_thread,
             disabled=True,
-            help="Controlled by OLLAMA_NUM_THREADS in ~/ollama-project/.env. Restart Streamlit after changing it.",
+            help="Controlled by OLLAMA_NUM_THREADS in the project .env file. Restart Streamlit after changing it.",
         )
         st.caption(f"Configured by .env: OLLAMA_NUM_THREADS={num_thread}")
         keep_alive = st.text_input("Keep alive", value=str(CONFIG["default_keep_alive"]))

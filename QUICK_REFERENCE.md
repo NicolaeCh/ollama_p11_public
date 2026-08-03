@@ -1,59 +1,63 @@
 # Quick Reference
 
-## Set 16 inference threads
-
 ```bash
-vi ~/ollama-project/.env
-OLLAMA_NUM_THREADS=16
-./scripts/streamlit_manager.sh restart
-```
-
-## Verify CPU visibility
-
-```bash
-nproc
-./scripts/ollama_manager.sh cpu-info
+cd ~/ollama-project
 ```
 
 ## Start
 
 ```bash
 ./scripts/ollama_manager.sh start
+./scripts/ollama_manager.sh verify
 ./scripts/streamlit_manager.sh start
 ```
 
-## Test 16-thread request
+## CPU configuration
+
+```dotenv
+OLLAMA_NUM_THREADS=16
+OLLAMA_CONTAINER_CPUS=16
+```
+
+Apply:
+
+```bash
+./scripts/ollama_manager.sh recreate
+./scripts/streamlit_manager.sh restart
+```
+
+Test:
 
 ```bash
 ./scripts/thread_test.sh gemma3:4b-it-qat
 ```
 
-## Recreate after container-setting changes
+## Compose and network checks
 
 ```bash
-./scripts/ollama_manager.sh recreate
+./scripts/ollama_manager.sh config
+podman inspect ollama-ppc64le
+podman network inspect ollama-net-local
+podman network inspect n8n-ppc64le_n8n_net
 ```
 
-## URLs
-
-```text
-Ollama API: http://<server-ip>:11434/api
-Streamlit:  http://<server-ip>:8505
-```
-
-## CPU-related variables
+## Models
 
 ```bash
-OLLAMA_NUM_THREADS=16       # threads requested per inference
-OLLAMA_NUM_PARALLEL=1       # concurrent requests per model
-OLLAMA_CONTAINER_CPUS=      # optional CPU quota; empty = unrestricted
-OLLAMA_CPUSET_CPUS=         # optional affinity; empty = unrestricted
+./scripts/pull_model.sh gemma3:4b-it-qat
+./scripts/list_models.sh
+./scripts/delete_model.sh gemma3:4b-it-qat
 ```
 
-## Direct API requirement
+## Logs
 
-Applications calling Ollama directly must send:
-
-```json
-"options": {"num_thread": 16}
+```bash
+./scripts/ollama_manager.sh logs
+./scripts/streamlit_manager.sh logs
 ```
+
+## Endpoints
+
+- External Ollama API: `http://SERVER_IP:11434`
+- Streamlit: `http://SERVER_IP:8505`
+- From n8n network: `http://ollama-ppc64le:11434`

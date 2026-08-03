@@ -1,194 +1,130 @@
-# Deployment Guide — Ollama on IBM Power
+# Deployment Guide
 
-## 1. Platform requirements
+## 1. Requirements
 
-- IBM Power LPAR running RHEL 10 or another supported ppc64le Linux distribution
-- Podman recommended
-- Python 3 and the Python venv package
-- At least 16 logical CPUs visible to the LPAR when `OLLAMA_NUM_THREADS=16`
-- Sufficient RAM for the selected model and context window
+- IBM Power ppc64le LPAR
+- RHEL 10
+- Podman and a Compose provider
+- Python 3 with `venv`
+- An existing external network named `n8n-ppc64le_n8n_net`
+- At least as many online logical CPUs as the requested inference thread count
 
-Verify CPU entitlement and visibility before deployment:
+Check the host:
 
 ```bash
+uname -m
 nproc
 lscpu
+podman --version
+podman compose version || podman-compose --version
+podman network inspect n8n-ppc64le_n8n_net
 ```
 
-On PowerVM, also verify the LPAR has enough virtual processors and entitled/shared processor capacity. A request for 16 software threads cannot overcome a low processor entitlement or a container CPU restriction.
+## 2. Configure
 
-## 2. Install
+Run:
 
 ```bash
-bash setup_environment.sh
 cd ~/ollama-project
-source venv/bin/activate
+./setup_environment.sh
 ```
 
-Python packages are installed with the ppc64le binary repository:
+Review `.env`. The important CPU values are:
 
-```bash
-pip install -r streamlit/requirements.txt \
-  --prefer-binary \
-  --extra-index-url=https://repo.fury.io/mgiessing
-```
-
-## 3. Configure `.env`
-
-The principal CPU setting is:
-
-```bash
+```dotenv
 OLLAMA_NUM_THREADS=16
+OLLAMA_CONTAINER_CPUS=16
 ```
 
-Recommended baseline:
+The CPU quota may be greater than the inference thread value, but must not be lower.
 
-```bash
-OLLAMA_CONTEXT_LENGTH=16384
-OLLAMA_NUM_THREADS=16
-OLLAMA_NUM_PARALLEL=1
-OLLAMA_MAX_LOADED_MODELS=1
-OLLAMA_MAX_QUEUE=64
-OLLAMA_CONTAINER_CPUS=
-OLLAMA_CPUSET_CPUS=
-```
-
-`OLLAMA_NUM_THREADS` is read by the Streamlit process and supplied to Ollama as `options.num_thread` on every `/api/chat` request. The test script supplies the same value to `/api/generate`.
-
-Do not confuse this with `OLLAMA_NUM_PARALLEL`. Parallel request slots provide concurrency, not additional threads for one generation, and multiply context-memory requirements.
-
-## 4. Start Ollama
+## 3. Start Ollama through Compose
 
 ```bash
 ./scripts/ollama_manager.sh start
-./scripts/ollama_manager.sh status
-./scripts/ollama_manager.sh cpu-info
 ```
 
-The expected ports are:
+The manager always uses `docker-compose.yml` with the project `.env`. It performs a preflight check for the external n8n network and validates numeric CPU settings.
 
-```text
-0.0.0.0:11434 -> Ollama API
-0.0.0.0:8505  -> Streamlit UI
+Inspect the fully resolved deployment:
+
+```bash
+./scripts/ollama_manager.sh config
 ```
 
-## 5. Pull a model
+Verify the running deployment:
+
+```bash
+./scripts/ollama_manager.sh verify
+```
+
+## 4. Pull a model
 
 ```bash
 ./scripts/pull_model.sh gemma3:4b-it-qat
 ```
 
-Equivalent Podman command:
-
-```bash
-podman exec -it ollama-ppc64le ollama pull gemma3:4b-it-qat
-```
-
-## 6. Start Streamlit
+## 5. Start Streamlit
 
 ```bash
 ./scripts/streamlit_manager.sh start
 ./scripts/streamlit_manager.sh status
 ```
 
-Open:
+The application derives the project directory from its own file location and reads `.env` from that directory. `.env` values are applied after `streamlit/config.yaml`, so the deployment environment is authoritative.
 
-```text
-http://<server-ip>:8505
-```
+## 6. Confirm thread use
 
-The thread count displayed in the sidebar is read-only and comes from `.env`. Restart Streamlit after editing the value:
+Run a sustained request:
 
 ```bash
-./scripts/streamlit_manager.sh restart
+./scripts/thread_test.sh gemma3:4b-it-qat
 ```
 
-## 7. Verify multithreaded inference
-
-Terminal 1:
+In another terminal:
 
 ```bash
 nmon
 ```
 
-Terminal 2:
+or:
 
 ```bash
-./scripts/thread_test.sh gemma3:4b-it-qat \
-  "Write a detailed technical explanation of PowerVM processor virtualization."
+podman stats ollama-ppc64le
 ```
 
-Terminal 3:
+The test sends `options.num_thread` using `OLLAMA_NUM_THREADS` and reports the peak number of Ollama/runner OS tasks observed during generation. The task count includes helper threads and is therefore a diagnostic signal, not an exact inference-thread counter.
 
-```bash
-podman logs -f ollama-ppc64le
-```
+## 7. Apply configuration changes
 
-The test sends:
-
-```json
-"options": {
-  "num_thread": 16,
-  "num_ctx": 16384,
-  "num_predict": 512
-}
-```
-
-A short prompt, model loading, token sampling, or the final part of generation may not keep all threads busy continuously. Judge utilization during a sustained prompt-evaluation or generation interval, not only from a single instantaneous `top` sample.
-
-## 8. CPU restrictions
-
-Check the container view:
-
-```bash
-./scripts/ollama_manager.sh cpu-info
-```
-
-Optional restriction variables:
-
-```bash
-OLLAMA_CONTAINER_CPUS=16
-OLLAMA_CPUSET_CPUS=0-15
-```
-
-They are empty by default. Setting them constrains the container; they do not increase the LPAR's available CPU capacity. After changing either value:
+For changes to container settings, networks, image, ports, or CPU quota:
 
 ```bash
 ./scripts/ollama_manager.sh recreate
 ```
 
-## 9. Direct API clients
-
-Any application bypassing Streamlit must explicitly send `options.num_thread`:
+For changes to `OLLAMA_NUM_THREADS`, restart Streamlit so it reloads `.env`:
 
 ```bash
-curl http://<server-ip>:11434/api/generate \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "model":"gemma3:4b-it-qat",
-    "prompt":"Explain simultaneous multithreading on IBM Power.",
-    "stream":false,
-    "options":{"num_thread":16,"num_ctx":16384,"num_predict":512}
-  }'
+./scripts/streamlit_manager.sh restart
 ```
 
-## 10. Troubleshooting one-CPU utilization
-
-1. Confirm the actual request contains `num_thread`.
-2. Run `./scripts/ollama_manager.sh cpu-info`.
-3. Check `nproc` on the host and inside the container.
-4. Ensure `OLLAMA_CONTAINER_CPUS` and `OLLAMA_CPUSET_CPUS` are empty or permit at least 16 logical CPUs.
-5. Check PowerVM virtual processors and entitlement.
-6. Use a sufficiently long generation test.
-7. Recreate the container after changing container CPU controls.
-8. Restart Streamlit after changing `OLLAMA_NUM_THREADS`.
-
-## 11. Firewall
+Using both commands after CPU changes is recommended:
 
 ```bash
-sudo firewall-cmd --add-port=11434/tcp --permanent
-sudo firewall-cmd --add-port=8505/tcp --permanent
-sudo firewall-cmd --reload
+./scripts/ollama_manager.sh recreate
+./scripts/streamlit_manager.sh restart
+./scripts/ollama_manager.sh verify
 ```
 
-Restrict these ports to trusted subnets whenever possible.
+## 8. Network behavior
+
+Compose creates `ollama-net-local` and attaches the Ollama container to it. It also attaches the container to the external `n8n-ppc64le_n8n_net` network.
+
+From n8n, use:
+
+```text
+http://ollama-ppc64le:11434/api/chat
+```
+
+For n8n requests, include the same `options.num_thread` value used by Streamlit.

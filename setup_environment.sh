@@ -6,8 +6,8 @@ MODELS_DIR="${PROJECT_DIR}/models"
 LOGS_DIR="${PROJECT_DIR}/logs"
 MODELFILES_DIR="${PROJECT_DIR}/modelfiles"
 ENV_FILE="${PROJECT_DIR}/.env"
-IMAGE="quay.io/andre_lutz/ollama-ppc64le"
 FURY="--prefer-binary --extra-index-url=https://repo.fury.io/mgiessing"
+DEFAULT_IMAGE="icr.io/ppc64le-oss/ollama-ppc64le:v0.17.6"
 
 say() { printf '%s\n' "$*"; }
 
@@ -20,13 +20,18 @@ ARCH="$(uname -m)"
 [[ "${ARCH}" == "ppc64le" ]] || say "WARNING: detected ${ARCH}; expected ppc64le"
 
 if command -v podman >/dev/null 2>&1; then
-  RUNTIME="podman"
+  RUNTIME=podman
 elif command -v docker >/dev/null 2>&1; then
-  RUNTIME="docker"
+  RUNTIME=docker
 else
   say "No container runtime found. Installing Podman..."
   sudo dnf install -y podman
-  RUNTIME="podman"
+  RUNTIME=podman
+fi
+
+if [[ "${RUNTIME}" == "podman" ]] && ! podman compose version >/dev/null 2>&1 && ! command -v podman-compose >/dev/null 2>&1; then
+  say "Installing podman-compose..."
+  sudo dnf install -y podman-compose
 fi
 
 command -v python3 >/dev/null 2>&1 || { say "Python 3 is required"; exit 1; }
@@ -43,33 +48,14 @@ python -m pip install --upgrade pip
 pip install -r "${PROJECT_DIR}/streamlit/requirements.txt" ${FURY}
 
 if [[ ! -f "${ENV_FILE}" ]]; then
-  cat > "${ENV_FILE}" <<ENV
-CONTAINER_RUNTIME=${RUNTIME}
-CONTAINER_NAME=ollama-ppc64le
-OLLAMA_IMAGE=${IMAGE}
-OLLAMA_HOST_BIND=0.0.0.0
-OLLAMA_API_HOST=127.0.0.1
-OLLAMA_PORT=11434
-STREAMLIT_HOST=0.0.0.0
-STREAMLIT_PORT=8505
-PROJECT_DIR=${PROJECT_DIR}
-OLLAMA_MODELS_DIR=${MODELS_DIR}
-OLLAMA_KEEP_ALIVE=10m
-OLLAMA_ORIGINS=*
-OLLAMA_CONTEXT_LENGTH=16384
-OLLAMA_NUM_THREADS=16
-OLLAMA_NUM_PARALLEL=1
-OLLAMA_MAX_LOADED_MODELS=1
-OLLAMA_MAX_QUEUE=64
-OLLAMA_CONTAINER_CPUS=
-OLLAMA_CPUSET_CPUS=
-HTTPS_PROXY=
-NO_PROXY=127.0.0.1,localhost
-ENV
+  cp "${PROJECT_DIR}/.env.example" "${ENV_FILE}"
+  # Absolute model path avoids ambiguity across Compose providers.
+  sed -i "s|^OLLAMA_MODELS_DIR=.*|OLLAMA_MODELS_DIR=${MODELS_DIR}|" "${ENV_FILE}"
+  sed -i "s|^CONTAINER_RUNTIME=.*|CONTAINER_RUNTIME=${RUNTIME}|" "${ENV_FILE}"
+  sed -i "s|^OLLAMA_IMAGE=.*|OLLAMA_IMAGE=${DEFAULT_IMAGE}|" "${ENV_FILE}"
   say "Created ${ENV_FILE}"
 else
   say "Keeping existing ${ENV_FILE}"
-  say "Ensure it contains OLLAMA_NUM_THREADS=16 or the desired value."
 fi
 
 cat > "${PROJECT_DIR}/.streamlit/config.toml" <<'TOML'
@@ -82,10 +68,26 @@ port = 8505
 gatherUsageStats = false
 TOML
 
-say "Pulling ${IMAGE}"
-"${RUNTIME}" pull "${IMAGE}"
+set -a
+# shellcheck disable=SC1090
+source "${ENV_FILE}"
+set +a
+
+THREADS="${OLLAMA_NUM_THREADS:-16}"
+CPUS="${OLLAMA_CONTAINER_CPUS:-${THREADS}}"
+N8N_NETWORK="${N8N_NETWORK_NAME:-n8n-ppc64le_n8n_net}"
+
+if ! "${RUNTIME}" network exists "${N8N_NETWORK}" >/dev/null 2>&1; then
+  say "WARNING: external network ${N8N_NETWORK} does not exist."
+  say "Start the n8n stack first or create it with: ${RUNTIME} network create ${N8N_NETWORK}"
+fi
+
+say "Pulling ${OLLAMA_IMAGE:-${DEFAULT_IMAGE}}"
+"${RUNTIME}" pull "${OLLAMA_IMAGE:-${DEFAULT_IMAGE}}"
 
 say "Setup complete"
-say "Edit ${ENV_FILE} and set OLLAMA_NUM_THREADS to the desired inference thread count."
-say "Start with: ${PROJECT_DIR}/scripts/ollama_manager.sh start"
-say "Then:       ${PROJECT_DIR}/scripts/streamlit_manager.sh start"
+say "Inference threads: ${THREADS}"
+say "Container CPU quota: ${CPUS}"
+say "Start Ollama:   ${PROJECT_DIR}/scripts/ollama_manager.sh start"
+say "Verify runtime: ${PROJECT_DIR}/scripts/ollama_manager.sh verify"
+say "Start UI:       ${PROJECT_DIR}/scripts/streamlit_manager.sh start"

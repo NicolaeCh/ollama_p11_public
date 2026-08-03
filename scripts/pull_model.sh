@@ -12,7 +12,7 @@ ENV_FILE="${BASE_DIR}/.env"
 [[ -f "${ENV_FILE}" ]] && source "${ENV_FILE}"
 
 RUNTIME="${CONTAINER_RUNTIME:-podman}"
-NAME="${CONTAINER_NAME:-ollama}"
+NAME="${CONTAINER_NAME:-ollama-ppc64le}"
 
 if ! command -v "${RUNTIME}" >/dev/null 2>&1; then
   echo "Container runtime not found: ${RUNTIME}"
